@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Home LED Dashboard</title>
+  <!-- Paho MQTT JavaScript Client -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-color: #f8fafc;
+      --accent-on: #22c55e;
+      --accent-off: #ef4444;
+      --accent-all: #3b82f6;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { margin-bottom: 5px; }
+    .status-bar {
+      margin-bottom: 25px;
+      font-size: 0.95rem;
+      padding: 8px 16px;
+      border-radius: 20px;
+      background: #334155;
+    }
+    .status-bar.connected { background: #15803d; }
+    .status-bar.disconnected { background: #b91c1c; }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 20px;
+      width: 100%;
+      max-width: 600px;
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+    }
+    .card h3 { margin-top: 0; }
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    button {
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      color: white;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+    .btn-on { background-color: var(--accent-on); }
+    .btn-off { background-color: var(--accent-off); }
+    .btn-all { background-color: var(--accent-all); width: 100%; margin-top: 10px; }
+    
+    .full-width { grid-column: 1 / -1; }
+    
+    .feed {
+      margin-top: 25px;
+      width: 100%;
+      max-width: 600px;
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 15px;
+      box-sizing: border-box;
+    }
+    .feed-log {
+      height: 100px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Smart Home Dashboard</h1>
+  <div id="connectionStatus" class="status-bar disconnected">Status: Disconnected</div>
+
+  <div class="grid">
+    <!-- LED 1 -->
+    <div class="card">
+      <h3>LED 1 (D2)</h3>
+      <div class="btn-group">
+        <button class="btn-on" onclick="publishMessage('home/led/1', 'ON')">ON</button>
+        <button class="btn-off" onclick="publishMessage('home/led/1', 'OFF')">OFF</button>
+      </div>
+    </div>
+
+    <!-- LED 2 -->
+    <div class="card">
+      <h3>LED 2 (D1)</h3>
+      <div class="btn-group">
+        <button class="btn-on" onclick="publishMessage('home/led/2', 'ON')">ON</button>
+        <button class="btn-off" onclick="publishMessage('home/led/2', 'OFF')">OFF</button>
+      </div>
+    </div>
+
+    <!-- LED 3 -->
+    <div class="card">
+      <h3>LED 3 (D5)</h3>
+      <div class="btn-group">
+        <button class="btn-on" onclick="publishMessage('home/led/3', 'ON')">ON</button>
+        <button class="btn-off" onclick="publishMessage('home/led/3', 'OFF')">OFF</button>
+      </div>
+    </div>
+
+    <!-- LED 4 -->
+    <div class="card">
+      <h3>LED 4 (D6)</h3>
+      <div class="btn-group">
+        <button class="btn-on" onclick="publishMessage('home/led/4', 'ON')">ON</button>
+        <button class="btn-off" onclick="publishMessage('home/led/4', 'OFF')">OFF</button>
+      </div>
+    </div>
+
+    <!-- Master Control -->
+    <div class="card full-width">
+      <h3>Master Switch</h3>
+      <div class="btn-group">
+        <button class="btn-on btn-all" onclick="publishMessage('home/led/all', 'ON')">ALL ON</button>
+        <button class="btn-off btn-all" onclick="publishMessage('home/led/all', 'OFF')">ALL OFF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-time Event Feed -->
+  <div class="feed">
+    <strong>System Event Logs:</strong>
+    <div id="log" class="feed-log"></div>
+  </div>
+
+  <script>
+    // Configuration Settings
+    const host = "02d0e43db837407e9f7a437bd538afb9.s1.eu.hivemq.cloud";
+    const port = 8884; // WebSocket WSS Port
+    const username = "gloryiot";
+    const password = "Akinolaglory04";
+    const clientId = "WebDash_" + Math.random().toString(16).substr(2, 8);
+
+    // Initialize MQTT Client
+    const client = new Paho.MQTT.Client(host, port, clientId);
+
+    client.onConnectionLost = onConnectionLost;
+    client.onMessageArrived = onMessageArrived;
+
+    connectClient();
+
+    function connectClient() {
+      logMessage("Connecting to HiveMQ WebSockets...");
+      client.connect({
+        onSuccess: onConnect,
+        onFailure: onFailure,
+        userName: username,
+        password: password,
+        useSSL: true
+      });
+    }
+
+    function onConnect() {
+      const statusDiv = document.getElementById("connectionStatus");
+      statusDiv.innerText = "Status: Connected to Broker";
+      statusDiv.className = "status-bar connected";
+      logMessage("Connected successfully!");
+
+      // Subscribe to feedback updates
+      client.subscribe("home/led/#");
+    }
+
+    function onFailure(response) {
+      const statusDiv = document.getElementById("connectionStatus");
+      statusDiv.innerText = "Status: Connection Failed";
+      statusDiv.className = "status-bar disconnected";
+      logMessage("Connection failed: " + response.errorMessage);
+    }
+
+    function onConnectionLost(responseObject) {
+      if (responseObject.errorCode !== 0) {
+        const statusDiv = document.getElementById("connectionStatus");
+        statusDiv.innerText = "Status: Disconnected";
+        statusDiv.className = "status-bar disconnected";
+        logMessage("Connection lost: " + responseObject.errorMessage);
+      }
+    }
+
+    function onMessageArrived(message) {
+      logMessage("[" + message.destinationName + "]: " + message.payloadString);
+    }
+
+    function publishMessage(topic, payload) {
+      if (!client.isConnected()) {
+        logMessage("Cannot publish: Client disconnected");
+        return;
+      }
+      const message = new Paho.MQTT.Message(payload);
+      message.destinationName = topic;
+      client.send(message);
+    }
+
+    function logMessage(msg) {
+      const logDiv = document.getElementById("log");
+      const entry = document.createElement("div");
+      entry.innerText = new Date().toLocaleTimeString() + " - " + msg;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+  </script>
+</body>
+</html>
